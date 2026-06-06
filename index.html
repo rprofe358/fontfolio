@@ -897,7 +897,7 @@ async function renderFonts(fonts) {
       const { data } = sb.storage.from('fonts').getPublicUrl(`${f.user_id}/${f.file_path}`);
       if (data?.publicUrl) {
         try {
-          const ff = new FontFace(`ff_${font.id}`, `url(${data.publicUrl})`);
+          const ff = new FontFace(`ff_${font.id}`, `url(${encodeURI(data.publicUrl)})`);
           const loaded = await ff.load();
           document.fonts.add(loaded);
           fontFaces[font.id] = `ff_${font.id}`;

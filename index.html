@@ -894,7 +894,7 @@ async function renderFonts(fonts) {
 
   for (const font of filtered) {
     if (!fontFaces[font.id]) {
-      const { data } = sb.storage.from('fonts').getPublicUrl(`${f.file_path}`);
+      const { data } = sb.storage.from('fonts').getPublicUrl(`${f.user_id}/${f.file_path}`);
       if (data?.publicUrl) {
         try {
           const ff = new FontFace(`ff_${font.id}`, `url(${data.publicUrl})`);
@@ -910,7 +910,7 @@ async function renderFonts(fonts) {
 
   grid.innerHTML = filtered.map(f => {
     const family = fontFaces[f.id] || 'inherit';
-    const { data } = sb.storage.from('fonts').getPublicUrl(`${f.file_path}`);
+    const { data } = sb.storage.from('fonts').getPublicUrl(`${f.user_id}/${f.file_path}`);
     const url = data?.publicUrl || '#';
     return `<div class="font-card">
       <div class="font-card-top">
@@ -1006,7 +1006,7 @@ async function uploadFonts() {
 
 async function deleteFont(fontId, filePath) {
   if (!confirm('¿Eliminar esta fuente de tu colección?')) return;
- await sb.storage.from('fonts').remove([filePath]);
+  await sb.storage.from('fonts').remove([`${currentUser.id}/${filePath}`]);
   await sb.from('fonts').delete().eq('id', fontId);
   showToast('Fuente eliminada', 'ok');
   delete fontFaces[fontId];

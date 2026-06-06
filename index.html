@@ -1002,7 +1002,7 @@ async function renderFonts(fonts) {
 
   for (const font of filtered) {
     if (!fontFaces[font.id]) {
-      const { data } = sb.storage.from('fonts').getPublicUrl(`${font.user_id}/${font.file_path}`);
+      const { data } = sb.storage.from('fonts').getPublicUrl(font.file_path);
       if (data?.publicUrl) {
         try {
           const ff = new FontFace(`ff_${font.id}`, `url(${data.publicUrl})`);

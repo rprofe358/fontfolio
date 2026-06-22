@@ -168,6 +168,45 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const { createClient } = supabase;
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+// ============================================================
+// SERVICIOS — encapsulan el acceso a Supabase.
+// Equivalente a un @Injectable() de Angular: cada clase recibe
+// el cliente de Supabase por constructor (inyección manual) y
+// expone métodos en vez de exponer el cliente directamente.
+// ============================================================
+
+class AuthService {
+  constructor(client) { this.client = client; }
+  getSession() { return this.client.auth.getSession(); }
+  onAuthStateChange(callback) { return this.client.auth.onAuthStateChange(callback); }
+  signIn(email, password) { return this.client.auth.signInWithPassword({ email, password }); }
+  signUp(email, password) { return this.client.auth.signUp({ email, password }); }
+  signOut() { return this.client.auth.signOut(); }
+}
+
+class ProfileService {
+  constructor(client) { this.client = client; }
+  getProfile(userId) { return this.client.from('profiles').select('*').eq('id', userId).single(); }
+  listProfiles() { return this.client.from('profiles').select('id, username').order('username'); }
+  createProfile(profile) { return this.client.from('profiles').insert(profile); }
+  updateUsername(userId, username) { return this.client.from('profiles').update({ username }).eq('id', userId); }
+}
+
+class FontService {
+  constructor(client) { this.client = client; }
+  getFontsByUser(userId) { return this.client.from('fonts').select('*').eq('user_id', userId).order('name'); }
+  getPublicUrl(userId, filePath) { return this.client.storage.from('fonts').getPublicUrl(`${userId}/${filePath}`); }
+  uploadFile(path, file) { return this.client.storage.from('fonts').upload(path, file, { upsert: false }); }
+  insertFontRecord(record) { return this.client.from('fonts').insert(record); }
+  deleteFile(path) { return this.client.storage.from('fonts').remove([path]); }
+  deleteRecord(fontId) { return this.client.from('fonts').delete().eq('id', fontId); }
+}
+
+// Instancias "inyectadas": cada servicio recibe el cliente de Supabase.
+const authService = new AuthService(sb);
+const profileService = new ProfileService(sb);
+const fontService = new FontService(sb);
+
 let currentUser = null;
 let currentProfile = null;
 let viewingUserId = null;
@@ -178,9 +217,9 @@ let previewSize = 36;
 
 // ---- INIT ----
 (async () => {
-  const { data: { session } } = await sb.auth.getSession();
+  const { data: { session } } = await authService.getSession();
   if (session) await enterApp(session.user);
-  sb.auth.onAuthStateChange(async (event, session) => {
+  authService.onAuthStateChange(async (event, session) => {
     if (event === 'SIGNED_IN') await enterApp(session.user);
     if (event === 'SIGNED_OUT') showAuth();
   });
@@ -219,7 +258,7 @@ async function updateUsername() {
   const newName = document.getElementById('profileNameInput').value.trim();
   const msg = document.getElementById('profileMsg');
   if (!newName) return showMsg(msg, 'El nombre no puede estar vacío', 'error');
-  const { error } = await sb.from('profiles').update({ username: newName }).eq('id', currentUser.id);
+  const { error } = await profileService.updateUsername(currentUser.id, newName);
   if (error) return showMsg(msg, error.message, 'error');
   currentProfile.username = newName;
   document.getElementById('userPill').textContent = newName;
@@ -242,7 +281,7 @@ async function doLogin() {
   const msg = document.getElementById('loginMsg');
   if (!email || !pass) return showMsg(msg, 'Completa todos los campos', 'error');
   btn.disabled = true; btn.textContent = 'Entrando...';
-  const { error } = await sb.auth.signInWithPassword({ email, password: pass });
+  const { error } = await authService.signIn(email, pass);
   btn.disabled = false; btn.textContent = 'Entrar';
   if (error) showMsg(msg, error.message, 'error');
 }
@@ -256,17 +295,17 @@ async function doRegister() {
   if (!name || !email || !pass) return showMsg(msg, 'Completa todos los campos', 'error');
   if (pass.length < 6) return showMsg(msg, 'La contraseña debe tener al menos 6 caracteres', 'error');
   btn.disabled = true; btn.textContent = 'Creando cuenta...';
-  const { data, error } = await sb.auth.signUp({ email, password: pass });
+  const { data, error } = await authService.signUp(email, pass);
   if (error) { btn.disabled = false; btn.textContent = 'Crear cuenta'; return showMsg(msg, error.message, 'error'); }
   if (data.user) {
-    await sb.from('profiles').insert({ id: data.user.id, username: name, email });
+    await profileService.createProfile({ id: data.user.id, username: name, email });
   }
   btn.disabled = false; btn.textContent = 'Crear cuenta';
   showMsg(msg, '¡Cuenta creada! Revisa tu correo para confirmar.', 'success');
 }
 
 async function doLogout() {
-  await sb.auth.signOut();
+  await authService.signOut();
 }
 
 function showAuth() {
@@ -281,7 +320,7 @@ async function enterApp(user) {
   document.getElementById('authScreen').style.display = 'none';
   document.getElementById('appScreen').style.display = 'block';
 
-  const { data: profile } = await sb.from('profiles').select('*').eq('id', user.id).single();
+  const { data: profile } = await profileService.getProfile(user.id);
   currentProfile = profile;
   document.getElementById('userPill').textContent = profile?.username || user.email;
 
@@ -291,7 +330,7 @@ async function enterApp(user) {
 }
 
 async function loadUserList() {
-  const { data: profiles } = await sb.from('profiles').select('id, username').order('username');
+  const { data: profiles } = await profileService.listProfiles();
   const list = document.getElementById('userList');
   list.innerHTML = '';
   if (!profiles) return;
@@ -316,7 +355,7 @@ async function loadFonts(userId, username) {
   document.getElementById('btnUploadOpen').style.display = isOwn ? '' : 'none';
   document.getElementById('fontsGrid').innerHTML = '<div class="loading-text">cargando fuentes...</div>';
 
-  const { data: fonts, error } = await sb.from('fonts').select('*').eq('user_id', userId).order('name');
+  const { data: fonts, error } = await fontService.getFontsByUser(userId);
   if (error || !fonts) { document.getElementById('fontsGrid').innerHTML = '<div class="loading-text">error cargando fuentes</div>'; return; }
 
   allFonts = fonts;
@@ -338,7 +377,7 @@ async function renderFonts(fonts) {
 
   for (const font of filtered) {
     if (!fontFaces[font.id]) {
-      const { data } = sb.storage.from('fonts').getPublicUrl(`${font.user_id}/${font.file_path}`);
+      const { data } = fontService.getPublicUrl(font.user_id, font.file_path);
       if (data?.publicUrl) {
         try {
           const ff = new FontFace(`ff_${font.id}`, `url(${data.publicUrl})`);
@@ -354,7 +393,7 @@ async function renderFonts(fonts) {
 
   grid.innerHTML = filtered.map(f => {
     const family = fontFaces[f.id] || 'inherit';
-    const { data } = sb.storage.from('fonts').getPublicUrl(`${f.user_id}/${f.file_path}`);
+    const { data } = fontService.getPublicUrl(f.user_id, f.file_path);
     const url = data?.publicUrl || '#';
     return `<div class="font-card">
       <div class="font-card-top">
@@ -428,9 +467,9 @@ async function uploadFonts() {
   let done = 0;
   for (const file of filesToUpload) {
     const path = `${currentUser.id}/${Date.now()}_${file.name}`;
-    const { error: storErr } = await sb.storage.from('fonts').upload(path, file, { upsert: false });
+    const { error: storErr } = await fontService.uploadFile(path, file);
     if (!storErr) {
-      await sb.from('fonts').insert({
+      await fontService.insertFontRecord({
         user_id: currentUser.id,
         name: file.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
         file_path: path.split('/').slice(1).join('/'),
@@ -450,8 +489,8 @@ async function uploadFonts() {
 
 async function deleteFont(fontId, filePath) {
   if (!confirm('¿Eliminar esta fuente de tu colección?')) return;
-  await sb.storage.from('fonts').remove([`${currentUser.id}/${filePath}`]);
-  await sb.from('fonts').delete().eq('id', fontId);
+  await fontService.deleteFile(`${currentUser.id}/${filePath}`);
+  await fontService.deleteRecord(fontId);
   showToast('Fuente eliminada', 'ok');
   delete fontFaces[fontId];
   await loadFonts(currentUser.id);
